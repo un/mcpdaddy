@@ -9,6 +9,7 @@ pub mod config_migration;
 pub mod config_store;
 pub mod runtime_state;
 pub mod stdio_framing;
+pub mod upstream_process;
 
 #[cfg(test)]
 mod tests {
