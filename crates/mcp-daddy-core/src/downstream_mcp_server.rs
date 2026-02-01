@@ -67,7 +67,7 @@ impl DownstreamMcpServer {
         &self,
         id: Option<Value>,
         tool_name: &str,
-        _arguments: Value,
+        arguments: Value,
     ) -> Value {
         match tool_name {
             "mcpdaddy.integrations.list" => {
@@ -101,12 +101,70 @@ impl DownstreamMcpServer {
                 })
             }
 
-            "mcpdaddy.tools.search" | "mcpdaddy.tools.call" => {
-                tool_call_error(id, "Not implemented")
-            }
+            "mcpdaddy.tools.search" => match self.compact_tools_search(arguments) {
+                Ok(resp) => json!({"jsonrpc": "2.0", "id": id, "result": resp}),
+                Err(msg) => tool_call_error(id, &msg),
+            },
+
+            "mcpdaddy.tools.call" => tool_call_error(id, "Not implemented"),
 
             _ => jsonrpc_error(id, -32602, "Unknown tool"),
         }
+    }
+
+    fn compact_tools_search(&self, arguments: Value) -> Result<Value, String> {
+        let query = arguments
+            .get("query")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing required argument: query".to_string())?;
+        let requested_limit = arguments
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize);
+        let limit = requested_limit.unwrap_or(20).clamp(1, 200);
+
+        let query_lc = query.to_lowercase();
+        let mut out = Vec::<Value>::new();
+
+        for upstream_id in &self.profile.allowed_upstream_ids {
+            let Some(cached) = self.tools_cache.get(upstream_id) else {
+                continue;
+            };
+            for tool in cached.tools {
+                let name = tool.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let title = tool.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let desc = tool
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                let hay = format!("{name} {title} {desc}").to_lowercase();
+                if !hay.contains(&query_lc) {
+                    continue;
+                }
+
+                out.push(json!({
+                    "upstreamId": upstream_id,
+                    "qualifiedName": format!("{upstream_id}.{name}"),
+                    "tool": tool
+                }));
+                if out.len() >= limit {
+                    break;
+                }
+            }
+
+            if out.len() >= limit {
+                break;
+            }
+        }
+
+        let structured = json!({"tools": out});
+        let text = serde_json::to_string(&structured).unwrap_or_else(|_| "{}".to_string());
+        Ok(json!({
+            "content": [{"type": "text", "text": text}],
+            "structuredContent": structured,
+            "isError": false
+        }))
     }
 
     pub fn handle_message(&mut self, msg: Value) -> Option<Value> {
@@ -540,6 +598,54 @@ mod tests {
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&"github".to_string()));
         assert!(ids.contains(&"notion".to_string()));
+    }
+
+    #[test]
+    fn compact_tools_search_respects_allowlist_and_limit() {
+        let profile = ClientProfileV1 {
+            profile_id: "p".to_string(),
+            display_name: "P".to_string(),
+            exposure_mode: ExposureMode::Compact,
+            allowed_upstream_ids: vec!["a".to_string()],
+        };
+
+        let cache = UpstreamToolsCacheStore::default();
+        cache.set(
+            "a",
+            vec![
+                json!({"name":"allowed_one","description":"d","inputSchema":{"type":"object"}}),
+                json!({"name":"allowed_two","description":"d","inputSchema":{"type":"object"}}),
+            ],
+        );
+        cache.set(
+            "b",
+            vec![json!({"name":"denied_one","description":"d","inputSchema":{"type":"object"}})],
+        );
+
+        let mut server = DownstreamMcpServer::new(profile).with_tools_cache(cache);
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "mcpdaddy.tools.search",
+                    "arguments": {"query": "allowed", "limit": 1}
+                }
+            }))
+            .unwrap();
+
+        assert_eq!(resp["result"]["isError"], false);
+        let tools = resp["result"]["structuredContent"]["tools"]
+            .as_array()
+            .unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["upstreamId"], "a");
+        assert!(tools[0]["qualifiedName"]
+            .as_str()
+            .unwrap()
+            .starts_with("a."));
+        assert!(tools[0]["tool"].get("inputSchema").is_some());
     }
 
     #[test]
