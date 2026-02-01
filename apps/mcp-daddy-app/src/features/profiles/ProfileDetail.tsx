@@ -1,18 +1,37 @@
 import type { ClientProfile, Upstream } from '../types';
+import { Button } from '@/components/ui/button';
 
 export function ProfileDetail({
   profile,
   upstreams,
+  onEdit,
+  onDelete,
 }: {
   profile: ClientProfile;
   upstreams: Upstream[];
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
   const allowed = new Set(profile.allowedUpstreamIds);
 
   return (
     <div className="rounded-2xl border bg-background/70 p-5 shadow-sm backdrop-blur">
       <p className="text-xs font-medium text-muted-foreground">Client profile detail (placeholder)</p>
-      <h2 className="mt-2 text-lg font-semibold tracking-tight">{profile.displayName}</h2>
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold tracking-tight">{profile.displayName}</h2>
+        <div className="flex items-center gap-2">
+          {onEdit ? (
+            <Button size="sm" variant="outline" onClick={onEdit}>
+              Edit
+            </Button>
+          ) : null}
+          {onDelete ? (
+            <Button size="sm" variant="destructive" onClick={onDelete}>
+              Delete
+            </Button>
+          ) : null}
+        </div>
+      </div>
 
       <div className="mt-4 grid gap-3 text-sm">
         <div className="rounded-lg border bg-background p-3">

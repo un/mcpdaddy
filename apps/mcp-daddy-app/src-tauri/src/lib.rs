@@ -25,6 +25,15 @@ struct UpsertUpstreamInput {
     cwd: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpsertProfileInput {
+    profile_id: String,
+    display_name: String,
+    exposure_mode: mcp_daddy_core::config::ExposureMode,
+    allowed_upstream_ids: Vec<String>,
+}
+
 #[tauri::command]
 fn config_get() -> Result<mcp_daddy_core::config::ConfigV1, String> {
     mcp_daddy_core::config_loader::load_config_or_default().map_err(|e| e.to_string())
@@ -87,6 +96,45 @@ fn config_upsert_upstream(
         cfg.upstream_servers.push(upstream);
     }
 
+    let json = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    mcp_daddy_core::config_store::write_config_string(&json).map_err(|e| e.to_string())?;
+    Ok(cfg)
+}
+
+#[tauri::command]
+fn config_upsert_profile(
+    input: UpsertProfileInput,
+) -> Result<mcp_daddy_core::config::ConfigV1, String> {
+    let mut cfg =
+        mcp_daddy_core::config_loader::load_config_or_default().map_err(|e| e.to_string())?;
+
+    let profile = mcp_daddy_core::config::ClientProfileV1 {
+        profile_id: input.profile_id,
+        display_name: input.display_name,
+        exposure_mode: input.exposure_mode,
+        allowed_upstream_ids: input.allowed_upstream_ids,
+    };
+
+    if let Some(existing) = cfg
+        .client_profiles
+        .iter_mut()
+        .find(|p| p.profile_id == profile.profile_id)
+    {
+        *existing = profile;
+    } else {
+        cfg.client_profiles.push(profile);
+    }
+
+    let json = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    mcp_daddy_core::config_store::write_config_string(&json).map_err(|e| e.to_string())?;
+    Ok(cfg)
+}
+
+#[tauri::command]
+fn config_delete_profile(profile_id: String) -> Result<mcp_daddy_core::config::ConfigV1, String> {
+    let mut cfg =
+        mcp_daddy_core::config_loader::load_config_or_default().map_err(|e| e.to_string())?;
+    cfg.client_profiles.retain(|p| p.profile_id != profile_id);
     let json = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
     mcp_daddy_core::config_store::write_config_string(&json).map_err(|e| e.to_string())?;
     Ok(cfg)
@@ -199,6 +247,8 @@ pub fn run() {
             config_get,
             config_add_upstream_from_preset,
             config_upsert_upstream,
+            config_upsert_profile,
+            config_delete_profile,
             upstream_test_connection
         ])
         .run(tauri::generate_context!())

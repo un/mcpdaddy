@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ProfileDetail } from "@/features/profiles/ProfileDetail";
 import { ProfilesList } from "@/features/profiles/ProfilesList";
+import { EditProfileDialog, type EditableProfile } from "@/features/profiles/EditProfileDialog";
 import type { ClientProfile, Upstream } from "@/features/types";
 import { UpstreamDetail } from "@/features/upstreams/UpstreamDetail";
 import { UpstreamsList } from "@/features/upstreams/UpstreamsList";
@@ -77,6 +78,15 @@ function App() {
   const [greetMsg, setGreetMsg] = useState("");
   const [name, setName] = useState("");
 
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [profileDialogMode, setProfileDialogMode] = useState<"create" | "edit">("create");
+  const [profileDialogInitial, setProfileDialogInitial] = useState<EditableProfile>({
+    profileId: "",
+    displayName: "",
+    exposureMode: "compact",
+    allowedUpstreamIds: [],
+  });
+
   async function greet() {
     // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
     setGreetMsg(await invoke("greet", { name }));
@@ -143,6 +153,27 @@ function App() {
               <ProfileDetail
                 profile={profiles.find((p) => p.id === selection.id) ?? profiles[0]}
                 upstreams={upstreams}
+                onEdit={() => {
+                  const p = profiles.find((x) => x.id === selection.id);
+                  if (!p) return;
+                  setProfileDialogMode("edit");
+                  setProfileDialogInitial({
+                    profileId: p.id,
+                    displayName: p.displayName,
+                    exposureMode: p.exposureMode,
+                    allowedUpstreamIds: p.allowedUpstreamIds,
+                  });
+                  setProfileDialogOpen(true);
+                }}
+                onDelete={async () => {
+                  const p = profiles.find((x) => x.id === selection.id);
+                  if (!p) return;
+                  const cfg = (await invoke("config_delete_profile", {
+                    profile_id: p.id,
+                  })) as any;
+                  setConfig(cfg);
+                  setSelection(null);
+                }}
               />
             )}
 
@@ -174,7 +205,21 @@ function App() {
               <p className="text-xs font-medium text-muted-foreground">Client Profiles</p>
               <p className="text-sm font-semibold tracking-tight">Per-client rules</p>
             </div>
-            <Button size="sm" variant="outline" type="button">
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              onClick={() => {
+                setProfileDialogMode("create");
+                setProfileDialogInitial({
+                  profileId: "",
+                  displayName: "",
+                  exposureMode: "compact",
+                  allowedUpstreamIds: [],
+                });
+                setProfileDialogOpen(true);
+              }}
+            >
               New
             </Button>
           </div>
@@ -255,6 +300,36 @@ function App() {
           })) as any;
           setConfig(cfg);
         }}
+      />
+
+      <EditProfileDialog
+        open={profileDialogOpen}
+        onOpenChange={setProfileDialogOpen}
+        mode={profileDialogMode}
+        initial={profileDialogInitial}
+        onSave={async (p) => {
+          const cfg = (await invoke("config_upsert_profile", {
+            input: {
+              profileId: p.profileId,
+              displayName: p.displayName,
+              exposureMode: p.exposureMode,
+              allowedUpstreamIds: p.allowedUpstreamIds,
+            },
+          })) as any;
+          setConfig(cfg);
+          setSelection({ kind: "profile", id: p.profileId });
+        }}
+        onDelete={
+          profileDialogMode === "edit"
+            ? async (profileId) => {
+                const cfg = (await invoke("config_delete_profile", {
+                  profile_id: profileId,
+                })) as any;
+                setConfig(cfg);
+                setSelection(null);
+              }
+            : undefined
+        }
       />
     </main>
   );
