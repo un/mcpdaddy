@@ -1,0 +1,20 @@
+# Node
+node_modules
+.next
+dist
+build
+coverage
+*.log
+
+# pnpm
+.pnpm-store
+
+# Env / secrets
+.env
+.env.*
+
+# Rust
+target
+
+# OS
+.DS_Store

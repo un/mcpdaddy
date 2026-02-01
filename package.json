@@ -1,0 +1,20 @@
+{
+  "name": "mcp-daddy",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.27.0",
+  "scripts": {
+    "dev": "pnpm --filter ./apps/web dev",
+    "dev:web": "pnpm --filter ./apps/web dev",
+    "build": "pnpm --filter ./apps/web build",
+    "build:web": "pnpm --filter ./apps/web build",
+    "lint": "pnpm --filter ./apps/web lint",
+    "lint:web": "pnpm --filter ./apps/web lint",
+    "typecheck": "pnpm --filter ./apps/web typecheck",
+    "typecheck:web": "pnpm --filter ./apps/web typecheck",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
+  }
+}
