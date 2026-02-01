@@ -6,11 +6,13 @@ export function ProfileDetail({
   upstreams,
   onEdit,
   onDelete,
+  onUpdateAllowedUpstreamIds,
 }: {
   profile: ClientProfile;
   upstreams: Upstream[];
   onEdit?: () => void;
   onDelete?: () => void;
+  onUpdateAllowedUpstreamIds?: (allowedUpstreamIds: string[]) => void;
 }) {
   const allowed = new Set(profile.allowedUpstreamIds);
 
@@ -51,9 +53,20 @@ export function ProfileDetail({
                 className="flex items-center justify-between rounded-md border bg-background px-2 py-1"
               >
                 <span className="text-sm">{u.displayName}</span>
-                <span className="text-xs text-muted-foreground">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={allowed.has(u.id)}
+                    onChange={() => {
+                      if (!onUpdateAllowedUpstreamIds) return;
+                      const next = new Set(profile.allowedUpstreamIds);
+                      if (next.has(u.id)) next.delete(u.id);
+                      else next.add(u.id);
+                      onUpdateAllowedUpstreamIds(Array.from(next));
+                    }}
+                  />
                   {allowed.has(u.id) ? 'allowed' : 'denied'}
-                </span>
+                </label>
               </div>
             ))}
           </div>
