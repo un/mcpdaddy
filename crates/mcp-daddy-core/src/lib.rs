@@ -4,6 +4,8 @@ pub fn build_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+pub mod config_store;
+
 #[cfg(test)]
 mod tests {
     use super::*;
