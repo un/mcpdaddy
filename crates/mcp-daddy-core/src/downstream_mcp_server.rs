@@ -89,6 +89,17 @@ impl DownstreamMcpServer {
 
             "tools/list" => {
                 let mut tools: Vec<Value> = Vec::new();
+                let cursor = msg
+                    .get("params")
+                    .and_then(|p| p.get("cursor"))
+                    .and_then(|v| v.as_str());
+                let offset = match cursor {
+                    Some(c) => match decode_cursor(c) {
+                        Some(o) => o,
+                        None => return Some(jsonrpc_error(id, -32602, "Invalid cursor")),
+                    },
+                    None => 0,
+                };
 
                 if self.profile.exposure_mode == crate::config::ExposureMode::Full {
                     for upstream_id in &self.profile.allowed_upstream_ids {
@@ -98,13 +109,19 @@ impl DownstreamMcpServer {
                     }
                 }
 
-                Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "tools": tools
-                    }
-                }))
+                if offset > tools.len() {
+                    return Some(jsonrpc_error(id, -32602, "Invalid cursor"));
+                }
+
+                let (page, next_cursor) = paginate(tools, offset, 50);
+
+                let mut result = serde_json::Map::new();
+                result.insert("tools".to_string(), Value::Array(page));
+                if let Some(next_cursor) = next_cursor {
+                    result.insert("nextCursor".to_string(), Value::String(next_cursor));
+                }
+
+                Some(json!({"jsonrpc": "2.0", "id": id, "result": Value::Object(result)}))
             }
 
             "tools/call" => {
@@ -204,6 +221,33 @@ fn namespace_tools(upstream_id: &str, tools: Vec<Value>) -> Vec<Value> {
             t
         })
         .collect()
+}
+
+fn paginate(
+    mut items: Vec<Value>,
+    offset: usize,
+    page_size: usize,
+) -> (Vec<Value>, Option<String>) {
+    let end = (offset + page_size).min(items.len());
+    let next = if end < items.len() {
+        Some(encode_cursor(end))
+    } else {
+        None
+    };
+    let page = items.drain(offset..end).collect();
+    (page, next)
+}
+
+fn encode_cursor(offset: usize) -> String {
+    format!("o:{offset}")
+}
+
+fn decode_cursor(cursor: &str) -> Option<usize> {
+    let (prefix, rest) = cursor.split_once(':')?;
+    if prefix != "o" {
+        return None;
+    }
+    rest.parse::<usize>().ok()
 }
 
 fn parse_namespaced_tool_name(name: &str) -> Option<(String, String)> {
@@ -360,6 +404,56 @@ mod tests {
         assert_eq!(a_tool["title"], "T");
         assert_eq!(a_tool["description"], "D");
         assert_eq!(a_tool["inputSchema"]["type"], "object");
+    }
+
+    #[test]
+    fn tools_list_paginates_with_cursor() {
+        let profile = ClientProfileV1 {
+            profile_id: "p".to_string(),
+            display_name: "P".to_string(),
+            exposure_mode: ExposureMode::Full,
+            allowed_upstream_ids: vec!["a".to_string()],
+        };
+        let cache = UpstreamToolsCacheStore::default();
+        let tools = (0..60)
+            .map(|i| json!({"name": format!("t{i}"), "description": "d", "inputSchema": {"type":"object"}}))
+            .collect::<Vec<_>>();
+        cache.set("a", tools);
+
+        let mut server = DownstreamMcpServer::new(profile).with_tools_cache(cache);
+        let first = server
+            .handle_message(json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}))
+            .unwrap();
+        let first_tools = first["result"]["tools"].as_array().unwrap();
+        assert_eq!(first_tools.len(), 50);
+        let cursor = first["result"]["nextCursor"].as_str().unwrap().to_string();
+
+        let second = server
+            .handle_message(
+                json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"cursor": cursor}}),
+            )
+            .unwrap();
+        let second_tools = second["result"]["tools"].as_array().unwrap();
+        assert_eq!(second_tools.len(), 10);
+        assert!(second["result"].get("nextCursor").is_none());
+        assert!(second_tools[0]["name"].as_str().unwrap().starts_with("a."));
+    }
+
+    #[test]
+    fn tools_list_invalid_cursor_returns_invalid_params() {
+        let profile = ClientProfileV1 {
+            profile_id: "p".to_string(),
+            display_name: "P".to_string(),
+            exposure_mode: ExposureMode::Full,
+            allowed_upstream_ids: vec![],
+        };
+        let mut server = DownstreamMcpServer::new(profile);
+        let resp = server
+            .handle_message(
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"cursor":"bad"}}),
+            )
+            .unwrap();
+        assert_eq!(resp["error"]["code"], -32602);
     }
 
     #[test]
