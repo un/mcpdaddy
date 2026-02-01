@@ -65,8 +65,8 @@ export function RunCommandConsentDialog({
             <Button
               variant="destructive"
               onClick={() => {
-                onOpenChange(false);
                 onApprove();
+                onOpenChange(false);
               }}
             >
               Approve & Run

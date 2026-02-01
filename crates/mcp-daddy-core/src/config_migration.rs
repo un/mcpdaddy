@@ -59,6 +59,10 @@ mod tests {
             upstream_servers: vec![UpstreamServerV1 {
                 upstream_id: "github".to_string(),
                 display_name: "GitHub".to_string(),
+                command: None,
+                args: vec![],
+                env: Default::default(),
+                cwd: None,
             }],
             client_profiles: vec![ClientProfileV1 {
                 profile_id: "default".to_string(),

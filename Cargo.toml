@@ -1,3 +1,4 @@
 [workspace]
 resolver = "2"
 members = ["crates/*", "bin/*"]
+exclude = ["apps/mcp-daddy-app/src-tauri"]

@@ -613,14 +613,26 @@ mod tests {
             UpstreamServerV1 {
                 upstream_id: "github".to_string(),
                 display_name: "GitHub".to_string(),
+                command: None,
+                args: vec![],
+                env: Default::default(),
+                cwd: None,
             },
             UpstreamServerV1 {
                 upstream_id: "notion".to_string(),
                 display_name: "Notion".to_string(),
+                command: None,
+                args: vec![],
+                env: Default::default(),
+                cwd: None,
             },
             UpstreamServerV1 {
                 upstream_id: "vercel".to_string(),
                 display_name: "Vercel".to_string(),
+                command: None,
+                args: vec![],
+                env: Default::default(),
+                cwd: None,
             },
         ];
 

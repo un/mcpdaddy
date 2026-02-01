@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub const SCHEMA_VERSION_V1: u32 = 1;
 
@@ -15,6 +16,18 @@ pub struct ConfigV1 {
 pub struct UpstreamServerV1 {
     pub upstream_id: String,
     pub display_name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +57,10 @@ mod tests {
             upstream_servers: vec![UpstreamServerV1 {
                 upstream_id: "github".to_string(),
                 display_name: "GitHub".to_string(),
+                command: None,
+                args: vec![],
+                env: Default::default(),
+                cwd: None,
             }],
             client_profiles: vec![ClientProfileV1 {
                 profile_id: "default".to_string(),
