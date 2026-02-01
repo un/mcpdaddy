@@ -1,5 +1,6 @@
 import type { ClientProfile, Upstream } from '../types';
 import { Button } from '@/components/ui/button';
+import { useMemo, useState } from 'react';
 
 export function ProfileDetail({
   profile,
@@ -17,6 +18,21 @@ export function ProfileDetail({
   onUpdateExposureMode?: (exposureMode: 'full' | 'compact') => void;
 }) {
   const allowed = new Set(profile.allowedUpstreamIds);
+  const [copied, setCopied] = useState(false);
+  const bridgeSnippet = useMemo(() => {
+    return JSON.stringify(
+      {
+        mcpServers: {
+          mcpdaddy: {
+            command: 'mcp-daddy-bridge',
+            args: ['--profile', profile.id],
+          },
+        },
+      },
+      null,
+      2
+    );
+  }, [profile.id]);
 
   return (
     <div className="rounded-2xl border bg-background/70 p-5 shadow-sm backdrop-blur">
@@ -81,6 +97,33 @@ export function ProfileDetail({
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="rounded-lg border bg-background p-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-medium text-muted-foreground">connection snippet (stdio)</p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(bridgeSnippet);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1200);
+                } catch {
+                  // no-op
+                }
+              }}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Uses `--profile {profile.id}`.
+          </p>
+          <pre className="mt-3 max-h-64 overflow-auto rounded-lg border bg-background p-3 font-mono text-xs whitespace-pre-wrap break-all">
+            {bridgeSnippet}
+          </pre>
         </div>
       </div>
     </div>
