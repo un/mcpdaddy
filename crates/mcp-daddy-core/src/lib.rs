@@ -12,6 +12,7 @@ pub mod stdio_framing;
 pub mod stdio_jsonrpc_client;
 pub mod upstream_mcp_client;
 pub mod upstream_process;
+pub mod upstream_tools_cache;
 
 #[cfg(test)]
 mod tests {
