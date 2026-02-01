@@ -219,6 +219,7 @@ fn read_until<R: Read>(reader: &mut R, delim: u8, buf: &mut Vec<u8>) -> io::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufRead;
 
     #[cfg(unix)]
     #[test]
@@ -250,6 +251,24 @@ mod tests {
         let mut spec = UpstreamProcessSpec::new("sh");
         spec.args = vec!["-c".into(), "exit 0".into()];
         let mut proc = RunningUpstreamProcess::spawn(&spec).unwrap();
+        proc.stop_with_timeout(Duration::from_millis(500)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spawn_applies_env_vars() {
+        let mut spec = UpstreamProcessSpec::new("sh");
+        spec.args = vec!["-c".into(), "echo $MCP_DADDY_TEST_ENV".into()];
+        spec.env
+            .insert("MCP_DADDY_TEST_ENV".to_string(), "ok".to_string());
+
+        let mut proc = RunningUpstreamProcess::spawn(&spec).unwrap();
+        let mut stdout = proc.take_stdout().unwrap();
+
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        assert_eq!(line.trim_end(), "ok");
+
         proc.stop_with_timeout(Duration::from_millis(500)).unwrap();
     }
 }

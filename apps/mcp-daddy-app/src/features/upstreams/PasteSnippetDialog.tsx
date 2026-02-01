@@ -55,6 +55,13 @@ export function PasteSnippetDialog({
           </div>
 
           <div className="p-5">
+            <div className="rounded-lg border bg-background p-3">
+              <p className="text-xs font-medium text-muted-foreground">note</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                For MVP, env values are stored locally in your config file.
+              </p>
+            </div>
+
             <label className="grid gap-2">
               <span className="text-xs font-medium text-muted-foreground">snippet (json)</span>
               <textarea
