@@ -13,6 +13,7 @@ import { AddUpstreamFromPresetDialog } from "@/features/upstreams/AddUpstreamFro
 import { ConfigureUpstreamFromPresetDialog } from "@/features/upstreams/ConfigureUpstreamFromPresetDialog";
 import { RunCommandConsentDialog, type RunCommandSpec } from "@/features/consent/RunCommandConsentDialog";
 import type { UpstreamPreset } from "@/features/upstreams/presets";
+import { PasteSnippetDialog } from "@/features/upstreams/PasteSnippetDialog";
 
 function App() {
   const [config, setConfig] = useState<{
@@ -62,6 +63,7 @@ function App() {
   }, [selection, upstreams]);
 
   const [addPresetOpen, setAddPresetOpen] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
   const [pendingPreset, setPendingPreset] = useState<UpstreamPreset | null>(null);
   const [pendingEnv, setPendingEnv] = useState<Record<string, string> | null>(null);
   const [configureOpen, setConfigureOpen] = useState(false);
@@ -89,9 +91,14 @@ function App() {
               <p className="text-xs font-medium text-muted-foreground">Upstreams</p>
               <p className="text-sm font-semibold tracking-tight">Local servers</p>
             </div>
-            <Button size="sm" variant="outline" type="button" onClick={() => setAddPresetOpen(true)}>
-              Add
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" type="button" onClick={() => setPasteOpen(true)}>
+                Paste
+              </Button>
+              <Button size="sm" variant="outline" type="button" onClick={() => setAddPresetOpen(true)}>
+                Presets
+              </Button>
+            </div>
           </div>
           <Separator />
           <ScrollArea className="h-[calc(100dvh-56px)] md:h-dvh">
@@ -231,6 +238,24 @@ function App() {
           }}
         />
       ) : null}
+
+      <PasteSnippetDialog
+        open={pasteOpen}
+        onOpenChange={setPasteOpen}
+        onSave={async (parsed) => {
+          const cfg = (await invoke("config_upsert_upstream", {
+            input: {
+              upstreamId: parsed.upstreamId,
+              displayName: parsed.displayName,
+              command: parsed.command,
+              args: parsed.args,
+              env: parsed.env,
+              cwd: parsed.cwd ?? null,
+            },
+          })) as any;
+          setConfig(cfg);
+        }}
+      />
     </main>
   );
 }
