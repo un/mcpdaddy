@@ -1,12 +1,23 @@
 import type { Upstream } from '../types';
 import { Button } from '@/components/ui/button';
 import { useMemo, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { UPSTREAM_PRESETS } from './presets';
 import { RunCommandConsentDialog, type RunCommandSpec } from '../consent/RunCommandConsentDialog';
 
 export function UpstreamDetail({ upstream }: { upstream: Upstream }) {
   const [consentOpen, setConsentOpen] = useState(false);
   const [ranCount, setRanCount] = useState(0);
+  const [testResult, setTestResult] = useState<
+    | null
+    | {
+        ok: boolean;
+        toolCount: number;
+        stderr: string[];
+        error: string | null;
+      }
+  >(null);
+  const [testLoading, setTestLoading] = useState(false);
 
   const sampleSpec: RunCommandSpec = useMemo(
     () => ({
@@ -31,6 +42,48 @@ export function UpstreamDetail({ upstream }: { upstream: Upstream }) {
               Preview Dialog
             </Button>
           </div>
+        </div>
+
+        <div className="rounded-lg border bg-background p-3">
+          <p className="text-xs font-medium text-muted-foreground">test connection</p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              {testResult
+                ? testResult.ok
+                  ? `ok (tools: ${testResult.toolCount})`
+                  : `failed (${testResult.error ?? 'unknown error'})`
+                : 'not run'}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={testLoading}
+              onClick={async () => {
+                setTestLoading(true);
+                try {
+                  const res = (await invoke('upstream_test_connection', {
+                    upstream_id: upstream.id,
+                  })) as any;
+                  setTestResult({
+                    ok: Boolean(res.ok),
+                    toolCount: Number(res.toolCount ?? 0),
+                    stderr: Array.isArray(res.stderr) ? (res.stderr as string[]) : [],
+                    error: typeof res.error === 'string' ? res.error : null,
+                  });
+                } finally {
+                  setTestLoading(false);
+                }
+              }}
+            >
+              {testLoading ? 'Testing...' : 'Test'}
+            </Button>
+          </div>
+
+          {testResult?.stderr?.length ? (
+            <pre className="mt-3 max-h-48 overflow-auto rounded-lg border bg-background p-3 font-mono text-xs whitespace-pre-wrap break-all">
+              {testResult.stderr.join('\n')}
+            </pre>
+          ) : null}
         </div>
         <div className="rounded-lg border bg-background p-3">
           <p className="text-xs font-medium text-muted-foreground">upstreamId</p>
