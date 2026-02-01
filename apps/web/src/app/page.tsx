@@ -9,7 +9,7 @@ export default function Home() {
         <section className="flex min-h-dvh flex-col justify-center py-16 sm:py-24">
           <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-600" />
-            Local-first MCP proxy (alpha)
+            Local-first MCP proxy (alpha) - deployed on Vercel
           </div>
 
           <h1 className="mt-6 text-balance text-4xl font-semibold tracking-tight sm:text-6xl">

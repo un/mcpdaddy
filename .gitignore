@@ -18,3 +18,4 @@ target
 
 # OS
 .DS_Store
+.vercel
