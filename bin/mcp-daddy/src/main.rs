@@ -8,15 +8,38 @@ fn main() {
         .with_level(true)
         .init();
 
+    let args: Vec<String> = std::env::args().collect();
+
+    let cfg = match mcp_daddy_core::config_loader::load_config_or_default() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to load config");
+            std::process::exit(1);
+        }
+    };
+
+    let profile_id = mcp_daddy_core::profile_selection::resolve_profile_id_with_env(&args)
+        .unwrap_or_else(|| "default".to_string());
+    if let Err(e) = mcp_daddy_core::profile_selection::validate_profile_exists(&cfg, &profile_id) {
+        tracing::error!(profile_id = %profile_id, error = %e, "invalid profile");
+        std::process::exit(2);
+    }
+
     tracing::info!(
         app = mcp_daddy_core::APP_NAME,
         version = mcp_daddy_core::build_version(),
-        "starting"
+        profile_id = %profile_id,
+        "starting stdio downstream server"
     );
 
-    println!(
-        "{} v{}",
-        mcp_daddy_core::APP_NAME,
-        mcp_daddy_core::build_version()
-    );
+    let server =
+        mcp_daddy_core::downstream_mcp_server::DownstreamMcpServer::new_with_profile(profile_id);
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    let reader = std::io::BufReader::new(stdin.lock());
+    let mut writer = stdout.lock();
+    if let Err(e) = server.serve_stdio(reader, &mut writer) {
+        tracing::error!(error = %e, "stdio server error");
+        std::process::exit(1);
+    }
 }

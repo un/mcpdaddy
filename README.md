@@ -29,3 +29,12 @@ Run these from the monorepo root (`code/`):
 - `pnpm typecheck`: run TypeScript typechecking
 - `pnpm build`: build the landing page
 - `pnpm format`: format files under `code/`
+
+## Profile Selection (Stdio)
+
+For stdio-based sessions (e.g. the bridge and local testing), MCP Daddy selects a
+Client Profile by ID.
+
+- CLI flag: `--profile <profileId>`
+- Env var: `MCP_DADDY_PROFILE=<profileId>`
+- If neither is set, MCP Daddy defaults to `default`.

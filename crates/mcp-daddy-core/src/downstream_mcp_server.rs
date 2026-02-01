@@ -22,6 +22,7 @@ pub struct DownstreamServerInfo {
 #[derive(Debug, Clone)]
 pub struct DownstreamMcpServer {
     pub server_info: DownstreamServerInfo,
+    pub profile_id: String,
 }
 
 impl DownstreamMcpServer {
@@ -31,6 +32,14 @@ impl DownstreamMcpServer {
                 name: "mcp-daddy".to_string(),
                 version: crate::build_version().to_string(),
             },
+            profile_id: "default".to_string(),
+        }
+    }
+
+    pub fn new_with_profile(profile_id: impl Into<String>) -> Self {
+        Self {
+            profile_id: profile_id.into(),
+            ..Self::new()
         }
     }
 
