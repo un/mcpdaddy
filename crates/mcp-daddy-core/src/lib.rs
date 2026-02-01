@@ -5,6 +5,7 @@ pub fn build_version() -> &'static str {
 }
 
 pub mod config;
+pub mod config_migration;
 pub mod config_store;
 
 #[cfg(test)]
