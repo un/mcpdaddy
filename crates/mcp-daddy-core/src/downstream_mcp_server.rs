@@ -89,9 +89,12 @@ impl DownstreamMcpServer {
 
             "tools/list" => {
                 let mut tools: Vec<Value> = Vec::new();
-                for upstream_id in &self.profile.allowed_upstream_ids {
-                    if let Some(cached) = self.tools_cache.get(upstream_id) {
-                        tools.extend(cached.tools);
+
+                if self.profile.exposure_mode == crate::config::ExposureMode::Full {
+                    for upstream_id in &self.profile.allowed_upstream_ids {
+                        if let Some(cached) = self.tools_cache.get(upstream_id) {
+                            tools.extend(namespace_tools(upstream_id, cached.tools));
+                        }
                     }
                 }
 
@@ -112,20 +115,31 @@ impl DownstreamMcpServer {
                     return Some(jsonrpc_error(id, -32602, "Invalid params"));
                 };
 
-                let matches = find_tool_upstreams(
-                    &self.tools_cache,
-                    &self.profile.allowed_upstream_ids,
-                    tool_name,
-                );
-                let upstream_id = match matches.as_slice() {
-                    [] => return Some(jsonrpc_error(id, -32602, "Unknown tool")),
-                    [only] => only.clone(),
-                    _ => {
-                        return Some(jsonrpc_error(
-                            id,
-                            -32602,
-                            "Ambiguous tool name; use namespaced tool name",
-                        ));
+                let (upstream_id, tool_name) = match parse_namespaced_tool_name(tool_name) {
+                    Some((upstream_id, tool_name)) => {
+                        if !self.profile.allowed_upstream_ids.contains(&upstream_id) {
+                            return Some(jsonrpc_error(id, -32602, "Unknown tool"));
+                        }
+                        (upstream_id, tool_name)
+                    }
+                    None => {
+                        let matches = find_tool_upstreams(
+                            &self.tools_cache,
+                            &self.profile.allowed_upstream_ids,
+                            tool_name,
+                        );
+                        let upstream_id = match matches.as_slice() {
+                            [] => return Some(jsonrpc_error(id, -32602, "Unknown tool")),
+                            [only] => only.clone(),
+                            _ => {
+                                return Some(jsonrpc_error(
+                                    id,
+                                    -32602,
+                                    "Ambiguous tool name; use namespaced tool name",
+                                ));
+                            }
+                        };
+                        (upstream_id, tool_name.to_string())
                     }
                 };
 
@@ -134,7 +148,7 @@ impl DownstreamMcpServer {
                     None => return Some(jsonrpc_error(id, -32000, "Upstream not connected")),
                 };
 
-                match client.call_tool(tool_name, arguments, Duration::from_secs(5)) {
+                match client.call_tool(&tool_name, arguments, Duration::from_secs(5)) {
                     Ok(result) => Some(json!({"jsonrpc": "2.0", "id": id, "result": result})),
                     Err(e) => Some(jsonrpc_error(id, -32000, &format!("Upstream error: {e}"))),
                 }
@@ -178,6 +192,26 @@ fn jsonrpc_error(id: Option<Value>, code: i64, message: &str) -> Value {
             "message": message
         }
     })
+}
+
+fn namespace_tools(upstream_id: &str, tools: Vec<Value>) -> Vec<Value> {
+    tools
+        .into_iter()
+        .map(|mut t| {
+            if let Some(name) = t.get("name").and_then(|v| v.as_str()) {
+                t["name"] = json!(format!("{upstream_id}.{name}"));
+            }
+            t
+        })
+        .collect()
+}
+
+fn parse_namespaced_tool_name(name: &str) -> Option<(String, String)> {
+    let (prefix, rest) = name.split_once('.')?;
+    if prefix.is_empty() || rest.is_empty() {
+        return None;
+    }
+    Some((prefix.to_string(), rest.to_string()))
 }
 
 fn find_tool_upstreams(
@@ -288,7 +322,44 @@ mod tests {
             .unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0]["name"], "allowed");
+        assert_eq!(tools[0]["name"], "a.allowed");
+    }
+
+    #[test]
+    fn tools_list_namespaces_and_preserves_metadata() {
+        let profile = ClientProfileV1 {
+            profile_id: "p".to_string(),
+            display_name: "P".to_string(),
+            exposure_mode: ExposureMode::Full,
+            allowed_upstream_ids: vec!["a".to_string(), "b".to_string()],
+        };
+        let cache = UpstreamToolsCacheStore::default();
+        cache.set(
+            "a",
+            vec![json!({"name":"same","title":"T","description":"D","inputSchema":{"type":"object"}})],
+        );
+        cache.set(
+            "b",
+            vec![json!({"name":"same","title":"T2","description":"D2","inputSchema":{"type":"object"}})],
+        );
+
+        let mut server = DownstreamMcpServer::new(profile).with_tools_cache(cache);
+        let resp = server
+            .handle_message(json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}))
+            .unwrap();
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 2);
+        let names: Vec<String> = tools
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        assert!(names.contains(&"a.same".to_string()));
+        assert!(names.contains(&"b.same".to_string()));
+
+        let a_tool = tools.iter().find(|t| t["name"] == "a.same").unwrap();
+        assert_eq!(a_tool["title"], "T");
+        assert_eq!(a_tool["description"], "D");
+        assert_eq!(a_tool["inputSchema"]["type"], "object");
     }
 
     #[test]
@@ -350,7 +421,7 @@ mod tests {
                 "jsonrpc":"2.0",
                 "id": 10,
                 "method": "tools/call",
-                "params": {"name": "allowed", "arguments": {}}
+                "params": {"name": "a.allowed", "arguments": {}}
             }))
             .unwrap();
         assert_eq!(resp["result"]["isError"], false);
