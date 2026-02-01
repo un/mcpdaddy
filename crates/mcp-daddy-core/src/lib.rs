@@ -8,6 +8,7 @@ pub mod config;
 pub mod config_migration;
 pub mod config_store;
 pub mod runtime_state;
+pub mod stdio_framing;
 
 #[cfg(test)]
 mod tests {
