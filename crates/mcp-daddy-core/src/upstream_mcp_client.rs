@@ -165,6 +165,22 @@ impl UpstreamMcpClient {
 
         Ok((tools, next_cursor))
     }
+
+    pub fn call_tool(
+        &mut self,
+        tool_name: &str,
+        arguments: Value,
+        timeout: Duration,
+    ) -> Result<Value, UpstreamMcpError> {
+        self.runtime
+            .record_upstream_tool_call(self.upstream_id.clone());
+
+        let params = json!({
+            "name": tool_name,
+            "arguments": arguments
+        });
+        Ok(self.rpc.request("tools/call", Some(params), timeout)?)
+    }
 }
 
 fn parse_initialize_result(result: Value) -> Result<UpstreamInitializeResult, UpstreamMcpError> {

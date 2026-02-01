@@ -20,10 +20,14 @@ fn main() {
 
     let profile_id = mcp_daddy_core::profile_selection::resolve_profile_id_with_env(&args)
         .unwrap_or_else(|| "default".to_string());
-    if let Err(e) = mcp_daddy_core::profile_selection::validate_profile_exists(&cfg, &profile_id) {
-        tracing::error!(profile_id = %profile_id, error = %e, "invalid profile");
-        std::process::exit(2);
-    }
+    let profile =
+        match mcp_daddy_core::profile_selection::validate_profile_exists(&cfg, &profile_id) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(profile_id = %profile_id, error = %e, "invalid profile");
+                std::process::exit(2);
+            }
+        };
 
     tracing::info!(
         app = mcp_daddy_core::APP_NAME,
@@ -32,8 +36,7 @@ fn main() {
         "starting stdio downstream server"
     );
 
-    let server =
-        mcp_daddy_core::downstream_mcp_server::DownstreamMcpServer::new_with_profile(profile_id);
+    let mut server = mcp_daddy_core::downstream_mcp_server::DownstreamMcpServer::new(profile);
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let reader = std::io::BufReader::new(stdin.lock());
