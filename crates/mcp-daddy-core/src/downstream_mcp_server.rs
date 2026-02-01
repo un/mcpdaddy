@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::time::Duration;
 
+use crate::config::UpstreamServerV1;
 use crate::stdio_framing::{write_jsonrpc_line, JsonRpcLineReader, StdioFramingError};
 use crate::upstream_mcp_client::MCP_PROTOCOL_VERSION;
 use crate::upstream_tools_cache::UpstreamToolsCacheStore;
@@ -27,6 +28,7 @@ pub struct DownstreamMcpServer {
     pub server_info: DownstreamServerInfo,
     pub profile: ClientProfileV1,
     pub tools_cache: UpstreamToolsCacheStore,
+    upstream_display_names: HashMap<String, String>,
     upstreams: HashMap<String, UpstreamMcpClient>,
 }
 
@@ -39,8 +41,17 @@ impl DownstreamMcpServer {
             },
             profile,
             tools_cache: UpstreamToolsCacheStore::default(),
+            upstream_display_names: HashMap::new(),
             upstreams: HashMap::new(),
         }
+    }
+
+    pub fn with_upstream_servers(mut self, upstream_servers: Vec<UpstreamServerV1>) -> Self {
+        self.upstream_display_names = upstream_servers
+            .into_iter()
+            .map(|u| (u.upstream_id, u.display_name))
+            .collect();
+        self
     }
 
     pub fn with_tools_cache(mut self, tools_cache: UpstreamToolsCacheStore) -> Self {
@@ -50,6 +61,52 @@ impl DownstreamMcpServer {
 
     pub fn add_upstream_client(&mut self, client: UpstreamMcpClient) {
         self.upstreams.insert(client.upstream_id.clone(), client);
+    }
+
+    fn handle_compact_meta_tool_call(
+        &self,
+        id: Option<Value>,
+        tool_name: &str,
+        _arguments: Value,
+    ) -> Value {
+        match tool_name {
+            "mcpdaddy.integrations.list" => {
+                let integrations = self
+                    .profile
+                    .allowed_upstream_ids
+                    .iter()
+                    .map(|upstream_id| {
+                        let display_name = self
+                            .upstream_display_names
+                            .get(upstream_id)
+                            .cloned()
+                            .unwrap_or_else(|| upstream_id.clone());
+                        json!({
+                            "upstreamId": upstream_id,
+                            "displayName": display_name
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                let structured = json!({"integrations": integrations});
+                let text = serde_json::to_string(&structured).unwrap_or_else(|_| "{}".to_string());
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": [{"type": "text", "text": text}],
+                        "structuredContent": structured,
+                        "isError": false
+                    }
+                })
+            }
+
+            "mcpdaddy.tools.search" | "mcpdaddy.tools.call" => {
+                tool_call_error(id, "Not implemented")
+            }
+
+            _ => jsonrpc_error(id, -32602, "Unknown tool"),
+        }
     }
 
     pub fn handle_message(&mut self, msg: Value) -> Option<Value> {
@@ -136,6 +193,10 @@ impl DownstreamMcpServer {
                 let (Some(tool_name), Some(arguments)) = (tool_name, arguments) else {
                     return Some(jsonrpc_error(id, -32602, "Invalid params"));
                 };
+
+                if self.profile.exposure_mode == crate::config::ExposureMode::Compact {
+                    return Some(self.handle_compact_meta_tool_call(id, tool_name, arguments));
+                }
 
                 if self.profile.exposure_mode != crate::config::ExposureMode::Full {
                     return Some(jsonrpc_error(id, -32602, "Unknown tool"));
@@ -430,6 +491,55 @@ mod tests {
             assert!(name.starts_with("mcpdaddy."));
             assert!(t.get("inputSchema").is_some());
         }
+    }
+
+    #[test]
+    fn compact_integrations_list_returns_allowed_only() {
+        let profile = ClientProfileV1 {
+            profile_id: "p".to_string(),
+            display_name: "P".to_string(),
+            exposure_mode: ExposureMode::Compact,
+            allowed_upstream_ids: vec!["github".to_string(), "notion".to_string()],
+        };
+        let upstreams = vec![
+            UpstreamServerV1 {
+                upstream_id: "github".to_string(),
+                display_name: "GitHub".to_string(),
+            },
+            UpstreamServerV1 {
+                upstream_id: "notion".to_string(),
+                display_name: "Notion".to_string(),
+            },
+            UpstreamServerV1 {
+                upstream_id: "vercel".to_string(),
+                display_name: "Vercel".to_string(),
+            },
+        ];
+
+        let mut server = DownstreamMcpServer::new(profile).with_upstream_servers(upstreams);
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "mcpdaddy.integrations.list",
+                    "arguments": {}
+                }
+            }))
+            .unwrap();
+
+        assert_eq!(resp["result"]["isError"], false);
+        let list = resp["result"]["structuredContent"]["integrations"]
+            .as_array()
+            .unwrap();
+        let ids: Vec<String> = list
+            .iter()
+            .map(|i| i["upstreamId"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&"github".to_string()));
+        assert!(ids.contains(&"notion".to_string()));
     }
 
     #[test]

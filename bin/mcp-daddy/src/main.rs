@@ -36,7 +36,8 @@ fn main() {
         "starting stdio downstream server"
     );
 
-    let mut server = mcp_daddy_core::downstream_mcp_server::DownstreamMcpServer::new(profile);
+    let mut server = mcp_daddy_core::downstream_mcp_server::DownstreamMcpServer::new(profile)
+        .with_upstream_servers(cfg.upstream_servers);
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let reader = std::io::BufReader::new(stdin.lock());
