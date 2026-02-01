@@ -9,6 +9,8 @@ pub mod config_migration;
 pub mod config_store;
 pub mod runtime_state;
 pub mod stdio_framing;
+pub mod stdio_jsonrpc_client;
+pub mod upstream_mcp_client;
 pub mod upstream_process;
 
 #[cfg(test)]

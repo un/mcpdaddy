@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
+use serde_json::Value;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpstreamStatus {
     Unknown,
@@ -16,6 +18,11 @@ pub struct UpstreamRuntime {
     pub last_changed_at: SystemTime,
     pub last_tool_call_at: Option<SystemTime>,
     pub last_error: Option<String>,
+    pub initialized_at: Option<SystemTime>,
+    pub protocol_version: Option<String>,
+    pub server_info: Option<Value>,
+    pub capabilities: Option<Value>,
+    pub instructions: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +82,11 @@ impl RuntimeStateStore {
                 last_changed_at: now,
                 last_tool_call_at: None,
                 last_error: None,
+                initialized_at: None,
+                protocol_version: None,
+                server_info: None,
+                capabilities: None,
+                instructions: None,
             });
 
         if entry.status != status {
@@ -99,6 +111,11 @@ impl RuntimeStateStore {
                 last_changed_at: now,
                 last_tool_call_at: None,
                 last_error: None,
+                initialized_at: None,
+                protocol_version: None,
+                server_info: None,
+                capabilities: None,
+                instructions: None,
             });
 
         entry.last_tool_call_at = Some(now);
@@ -144,6 +161,44 @@ impl RuntimeStateStore {
         };
 
         state.last_call_by_profile.insert(profile_id, now);
+    }
+
+    pub fn record_upstream_initialized(
+        &self,
+        upstream_id: impl Into<String>,
+        protocol_version: String,
+        capabilities: Value,
+        server_info: Value,
+        instructions: Option<String>,
+    ) {
+        let upstream_id = upstream_id.into();
+        let mut state = self.inner.write().expect("runtime state rwlock poisoned");
+
+        let now = SystemTime::now();
+        let entry = state
+            .upstreams
+            .entry(upstream_id.clone())
+            .or_insert_with(|| UpstreamRuntime {
+                upstream_id,
+                status: UpstreamStatus::Unknown,
+                last_changed_at: now,
+                last_tool_call_at: None,
+                last_error: None,
+                initialized_at: None,
+                protocol_version: None,
+                server_info: None,
+                capabilities: None,
+                instructions: None,
+            });
+
+        entry.status = UpstreamStatus::Healthy;
+        entry.last_changed_at = now;
+        entry.last_error = None;
+        entry.initialized_at = Some(now);
+        entry.protocol_version = Some(protocol_version);
+        entry.capabilities = Some(capabilities);
+        entry.server_info = Some(server_info);
+        entry.instructions = instructions;
     }
 }
 

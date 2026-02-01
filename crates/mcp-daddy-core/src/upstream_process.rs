@@ -68,7 +68,7 @@ impl StderrCapture {
 pub struct RunningUpstreamProcess {
     child: Child,
     pub stdin: ChildStdin,
-    pub stdout: BufReader<std::process::ChildStdout>,
+    stdout: Option<BufReader<std::process::ChildStdout>>,
     stderr_capture: Arc<StderrCapture>,
     stderr_thread: Option<JoinHandle<()>>,
 }
@@ -139,10 +139,18 @@ impl RunningUpstreamProcess {
         Ok(Self {
             child,
             stdin,
-            stdout: BufReader::new(stdout),
+            stdout: Some(BufReader::new(stdout)),
             stderr_capture,
             stderr_thread: Some(stderr_thread),
         })
+    }
+
+    pub fn take_stdout(
+        &mut self,
+    ) -> Result<BufReader<std::process::ChildStdout>, UpstreamProcessError> {
+        self.stdout
+            .take()
+            .ok_or(UpstreamProcessError::MissingStdout)
     }
 
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>, UpstreamProcessError> {
