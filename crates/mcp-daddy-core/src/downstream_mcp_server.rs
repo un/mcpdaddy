@@ -132,6 +132,10 @@ impl DownstreamMcpServer {
                     return Some(jsonrpc_error(id, -32602, "Invalid params"));
                 };
 
+                if self.profile.exposure_mode != crate::config::ExposureMode::Full {
+                    return Some(jsonrpc_error(id, -32602, "Unknown tool"));
+                }
+
                 let (upstream_id, tool_name) = match parse_namespaced_tool_name(tool_name) {
                     Some((upstream_id, tool_name)) => {
                         if !self.profile.allowed_upstream_ids.contains(&upstream_id) {
@@ -139,35 +143,26 @@ impl DownstreamMcpServer {
                         }
                         (upstream_id, tool_name)
                     }
-                    None => {
-                        let matches = find_tool_upstreams(
-                            &self.tools_cache,
-                            &self.profile.allowed_upstream_ids,
-                            tool_name,
-                        );
-                        let upstream_id = match matches.as_slice() {
-                            [] => return Some(jsonrpc_error(id, -32602, "Unknown tool")),
-                            [only] => only.clone(),
-                            _ => {
-                                return Some(jsonrpc_error(
-                                    id,
-                                    -32602,
-                                    "Ambiguous tool name; use namespaced tool name",
-                                ));
-                            }
-                        };
-                        (upstream_id, tool_name.to_string())
-                    }
+                    None => return Some(jsonrpc_error(id, -32602, "Invalid params")),
                 };
+
+                if !tool_exists_in_cache(&self.tools_cache, &upstream_id, &tool_name) {
+                    return Some(jsonrpc_error(id, -32602, "Unknown tool"));
+                }
 
                 let client = match self.upstreams.get_mut(&upstream_id) {
                     Some(c) => c,
-                    None => return Some(jsonrpc_error(id, -32000, "Upstream not connected")),
+                    None => {
+                        return Some(tool_call_error(
+                            id,
+                            &format!("Upstream not connected: {upstream_id}"),
+                        ));
+                    }
                 };
 
                 match client.call_tool(&tool_name, arguments, Duration::from_secs(5)) {
                     Ok(result) => Some(json!({"jsonrpc": "2.0", "id": id, "result": result})),
-                    Err(e) => Some(jsonrpc_error(id, -32000, &format!("Upstream error: {e}"))),
+                    Err(e) => Some(tool_call_error(id, &format!("Upstream error: {e}"))),
                 }
             }
 
@@ -207,6 +202,17 @@ fn jsonrpc_error(id: Option<Value>, code: i64, message: &str) -> Value {
         "error": {
             "code": code,
             "message": message
+        }
+    })
+}
+
+fn tool_call_error(id: Option<Value>, message: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [{"type": "text", "text": message}],
+            "isError": true
         }
     })
 }
@@ -258,25 +264,18 @@ fn parse_namespaced_tool_name(name: &str) -> Option<(String, String)> {
     Some((prefix.to_string(), rest.to_string()))
 }
 
-fn find_tool_upstreams(
+fn tool_exists_in_cache(
     cache: &UpstreamToolsCacheStore,
-    allowed_upstream_ids: &[String],
+    upstream_id: &str,
     tool_name: &str,
-) -> Vec<String> {
-    let mut out = Vec::new();
-    for upstream_id in allowed_upstream_ids {
-        let Some(cached) = cache.get(upstream_id) else {
-            continue;
-        };
-        if cached
-            .tools
-            .iter()
-            .any(|t| t.get("name").and_then(|v| v.as_str()) == Some(tool_name))
-        {
-            out.push(upstream_id.clone());
-        }
-    }
-    out
+) -> bool {
+    let Some(cached) = cache.get(upstream_id) else {
+        return false;
+    };
+    cached
+        .tools
+        .iter()
+        .any(|t| t.get("name").and_then(|v| v.as_str()) == Some(tool_name))
 }
 
 #[cfg(test)]
@@ -464,10 +463,33 @@ mod tests {
             exposure_mode: ExposureMode::Full,
             allowed_upstream_ids: vec!["a".to_string()],
         };
+
+        let mut server = DownstreamMcpServer::new(profile);
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc":"2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {"name": "b.denied", "arguments": {}}
+            }))
+            .unwrap();
+
+        assert_eq!(resp["error"]["code"], -32602);
+    }
+
+    #[test]
+    fn tools_call_unknown_tool_returns_invalid_params() {
+        let profile = ClientProfileV1 {
+            profile_id: "p".to_string(),
+            display_name: "P".to_string(),
+            exposure_mode: ExposureMode::Full,
+            allowed_upstream_ids: vec!["a".to_string()],
+        };
+
         let cache = UpstreamToolsCacheStore::default();
         cache.set(
-            "b",
-            vec![json!({"name":"denied","description":"d","inputSchema":{"type":"object"}})],
+            "a",
+            vec![json!({"name":"allowed","description":"d","inputSchema":{"type":"object"}})],
         );
 
         let mut server = DownstreamMcpServer::new(profile).with_tools_cache(cache);
@@ -476,10 +498,9 @@ mod tests {
                 "jsonrpc":"2.0",
                 "id": 10,
                 "method": "tools/call",
-                "params": {"name": "denied", "arguments": {}}
+                "params": {"name": "a.nope", "arguments": {}}
             }))
             .unwrap();
-
         assert_eq!(resp["error"]["code"], -32602);
     }
 
@@ -520,5 +541,94 @@ mod tests {
             .unwrap();
         assert_eq!(resp["result"]["isError"], false);
         assert_eq!(resp["result"]["content"][0]["text"], "ok");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tools_call_upstream_failure_maps_to_is_error_true() {
+        let script = r#"read l1; echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"0.0.0"}}}'; read l2; exit 0"#;
+        let mut spec = UpstreamProcessSpec::new("sh");
+        spec.args = vec!["-c".into(), script.into()];
+
+        let runtime = RuntimeStateStore::default();
+        let mut upstream = UpstreamMcpClient::spawn("a", &spec, runtime).unwrap();
+        upstream.initialize(Duration::from_millis(500)).unwrap();
+
+        let profile = ClientProfileV1 {
+            profile_id: "p".to_string(),
+            display_name: "P".to_string(),
+            exposure_mode: ExposureMode::Full,
+            allowed_upstream_ids: vec!["a".to_string()],
+        };
+
+        let cache = UpstreamToolsCacheStore::default();
+        cache.set(
+            "a",
+            vec![json!({"name":"allowed","description":"d","inputSchema":{"type":"object"}})],
+        );
+
+        let mut server = DownstreamMcpServer::new(profile).with_tools_cache(cache);
+        server.add_upstream_client(upstream);
+
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc":"2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {"name": "a.allowed", "arguments": {}}
+            }))
+            .unwrap();
+
+        assert!(resp.get("error").is_none());
+        assert_eq!(resp["result"]["isError"], true);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tools_call_routes_to_correct_upstream_by_prefix() {
+        let script_a = r#"read l1; echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"a","version":"0"}}}'; read l2; read l3; echo '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"from-a"}],"isError":false}}'; exit 0"#;
+        let script_b = r#"read l1; echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"b","version":"0"}}}'; read l2; read l3; echo '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"from-b"}],"isError":false}}'; exit 0"#;
+
+        let mut spec_a = UpstreamProcessSpec::new("sh");
+        spec_a.args = vec!["-c".into(), script_a.into()];
+        let mut spec_b = UpstreamProcessSpec::new("sh");
+        spec_b.args = vec!["-c".into(), script_b.into()];
+
+        let runtime = RuntimeStateStore::default();
+        let mut upstream_a = UpstreamMcpClient::spawn("a", &spec_a, runtime.clone()).unwrap();
+        let mut upstream_b = UpstreamMcpClient::spawn("b", &spec_b, runtime).unwrap();
+        upstream_a.initialize(Duration::from_millis(500)).unwrap();
+        upstream_b.initialize(Duration::from_millis(500)).unwrap();
+
+        let profile = ClientProfileV1 {
+            profile_id: "p".to_string(),
+            display_name: "P".to_string(),
+            exposure_mode: ExposureMode::Full,
+            allowed_upstream_ids: vec!["a".to_string(), "b".to_string()],
+        };
+
+        let cache = UpstreamToolsCacheStore::default();
+        cache.set(
+            "a",
+            vec![json!({"name":"allowed","description":"d","inputSchema":{"type":"object"}})],
+        );
+        cache.set(
+            "b",
+            vec![json!({"name":"allowed","description":"d","inputSchema":{"type":"object"}})],
+        );
+
+        let mut server = DownstreamMcpServer::new(profile).with_tools_cache(cache);
+        server.add_upstream_client(upstream_a);
+        server.add_upstream_client(upstream_b);
+
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc":"2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {"name": "b.allowed", "arguments": {}}
+            }))
+            .unwrap();
+        assert_eq!(resp["result"]["content"][0]["text"], "from-b");
     }
 }
