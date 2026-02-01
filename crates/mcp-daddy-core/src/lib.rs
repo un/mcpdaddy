@@ -7,6 +7,7 @@ pub fn build_version() -> &'static str {
 pub mod config;
 pub mod config_migration;
 pub mod config_store;
+pub mod downstream_mcp_server;
 pub mod runtime_state;
 pub mod stdio_framing;
 pub mod stdio_jsonrpc_client;
