@@ -101,11 +101,16 @@ impl DownstreamMcpServer {
                     None => 0,
                 };
 
-                if self.profile.exposure_mode == crate::config::ExposureMode::Full {
-                    for upstream_id in &self.profile.allowed_upstream_ids {
-                        if let Some(cached) = self.tools_cache.get(upstream_id) {
-                            tools.extend(namespace_tools(upstream_id, cached.tools));
+                match self.profile.exposure_mode {
+                    crate::config::ExposureMode::Full => {
+                        for upstream_id in &self.profile.allowed_upstream_ids {
+                            if let Some(cached) = self.tools_cache.get(upstream_id) {
+                                tools.extend(namespace_tools(upstream_id, cached.tools));
+                            }
                         }
+                    }
+                    crate::config::ExposureMode::Compact => {
+                        tools = compact_meta_tools();
                     }
                 }
 
@@ -227,6 +232,42 @@ fn namespace_tools(upstream_id: &str, tools: Vec<Value>) -> Vec<Value> {
             t
         })
         .collect()
+}
+
+fn compact_meta_tools() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "mcpdaddy.integrations.list",
+            "description": "List allowed upstream integrations.",
+            "inputSchema": {"type": "object", "additionalProperties": false}
+        }),
+        json!({
+            "name": "mcpdaddy.tools.search",
+            "description": "Search tools across allowed upstream integrations.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 200}
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }
+        }),
+        json!({
+            "name": "mcpdaddy.tools.call",
+            "description": "Call an upstream tool by qualified name.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "qualifiedName": {"type": "string", "description": "<upstreamId>.<toolName>"},
+                    "arguments": {"type": "object"}
+                },
+                "required": ["qualifiedName", "arguments"],
+                "additionalProperties": false
+            }
+        }),
+    ]
 }
 
 fn paginate(
@@ -366,6 +407,29 @@ mod tests {
         let tools = resp["result"]["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0]["name"], "a.allowed");
+    }
+
+    #[test]
+    fn compact_mode_tools_list_is_meta_only() {
+        let profile = ClientProfileV1 {
+            profile_id: "p".to_string(),
+            display_name: "P".to_string(),
+            exposure_mode: ExposureMode::Compact,
+            allowed_upstream_ids: vec!["a".to_string()],
+        };
+
+        let mut server = DownstreamMcpServer::new(profile);
+        let resp = server
+            .handle_message(json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}))
+            .unwrap();
+
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 3);
+        for t in tools {
+            let name = t["name"].as_str().unwrap();
+            assert!(name.starts_with("mcpdaddy."));
+            assert!(t.get("inputSchema").is_some());
+        }
     }
 
     #[test]
