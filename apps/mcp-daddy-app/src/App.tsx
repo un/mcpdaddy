@@ -187,6 +187,19 @@ function App() {
                   })) as any;
                   setConfig(cfg);
                 }}
+                onUpdateExposureMode={async (exposureMode) => {
+                  const p = profiles.find((x) => x.id === selection.id);
+                  if (!p) return;
+                  const cfg = (await invoke("config_upsert_profile", {
+                    input: {
+                      profileId: p.id,
+                      displayName: p.displayName,
+                      exposureMode,
+                      allowedUpstreamIds: p.allowedUpstreamIds,
+                    },
+                  })) as any;
+                  setConfig(cfg);
+                }}
               />
             )}
 

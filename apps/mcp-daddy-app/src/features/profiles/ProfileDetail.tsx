@@ -7,12 +7,14 @@ export function ProfileDetail({
   onEdit,
   onDelete,
   onUpdateAllowedUpstreamIds,
+  onUpdateExposureMode,
 }: {
   profile: ClientProfile;
   upstreams: Upstream[];
   onEdit?: () => void;
   onDelete?: () => void;
   onUpdateAllowedUpstreamIds?: (allowedUpstreamIds: string[]) => void;
+  onUpdateExposureMode?: (exposureMode: 'full' | 'compact') => void;
 }) {
   const allowed = new Set(profile.allowedUpstreamIds);
 
@@ -42,7 +44,16 @@ export function ProfileDetail({
         </div>
         <div className="rounded-lg border bg-background p-3">
           <p className="text-xs font-medium text-muted-foreground">exposureMode</p>
-          <p className="mt-1">{profile.exposureMode}</p>
+          <select
+            className="mt-2 h-9 w-full rounded-md border border-input bg-background px-2 text-sm shadow-sm outline-none transition focus:border-ring"
+            value={profile.exposureMode}
+            onChange={(e) => {
+              onUpdateExposureMode?.(e.currentTarget.value as 'full' | 'compact');
+            }}
+          >
+            <option value="compact">compact</option>
+            <option value="full">full</option>
+          </select>
         </div>
         <div className="rounded-lg border bg-background p-3">
           <p className="text-xs font-medium text-muted-foreground">allowed upstreams</p>
